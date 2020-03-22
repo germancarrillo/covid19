@@ -65,7 +65,7 @@ if __name__== "__main__":
     for c in ['Italy','Switzerland','Spain','Germany','France','China']:
         plt.plot( df.loc[(df.index.get_level_values('country_region')==c)&(df.index.get_level_values('case_type')=='Confirmed')].density.droplevel([1,2]),linewidth=2,label=c)
     plt.semilogy()
-    plt.legend(); plt.grid(); plt.ylabel('ConfirmedCases/100k habitants'); plt.xlabel('Datetime')
+    plt.legend(); plt.grid(); plt.ylabel('ConfirmedCases/100k inhabitants'); plt.xlabel('Datetime')
     plt.show()
 
     
@@ -73,7 +73,7 @@ if __name__== "__main__":
     for c in ['Italy','Switzerland','Spain','Germany','France','China']:
         plt.plot( df.loc[(df.index.get_level_values('country_region')==c)&(df.index.get_level_values('case_type')=='Deaths')].density.droplevel([1,2]),linewidth=2,label=c)
     plt.semilogy()
-    plt.legend(); plt.grid(); plt.ylabel('Fatalities/100k habitants'); plt.xlabel('Datetime')
+    plt.legend(); plt.grid(); plt.ylabel('Fatalities/100k inhabitants'); plt.xlabel('Datetime')
     plt.show()
 
   
