@@ -1,9 +1,8 @@
 import os
 import math
+import itertools
 import numpy as np
 import pandas as pd
-import datadotworld as dw
-import itertools
 
 from datetime import datetime
 
