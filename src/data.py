@@ -18,6 +18,7 @@ def query_dataworld():
             
 ##
 def enhance(df):
+    
     shapename = 'admin_0_countries'
     countries_shp = shpreader.natural_earth(resolution='110m',category='cultural', name=shapename)
     df['POP_EST'] = None
@@ -37,4 +38,5 @@ def enhance(df):
 
 ##
 def save(df):
+    os.makedirs('data/',exist_ok=True) 
     df.to_pickle('data/data.pkl.tgz')

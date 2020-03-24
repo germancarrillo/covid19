@@ -25,19 +25,35 @@ countries = dict(Switzerland= 'r',
 ##
 def make_plots(df):
 
-    os.makedirs('plots',exist_ok=True) 
+    os.makedirs('plots/cases/',exist_ok=True)
+    plot_totals(df)
+    print('total cases plotted')    
     for case_type in df.index.get_level_values('case_type').unique(): plot_cases(df,case_type,'cases')
-    print('cases plotted')
-    
+    print('country cases plotted')
     for case_type in df.index.get_level_values('case_type').unique(): plot_cases(df,case_type,'density')
-    print('densities plotted')
+    print('country densities plotted')
     
-    for date in df.index.get_level_values('date'):
+    os.makedirs('plots/maps/',exist_ok=True) 
+    for date in df.index.get_level_values('date').unique():
         for case_type in df.index.get_level_values('case_type').unique():       
             df_date=df.loc[(df.index.get_level_values('date'     )==date     )&
                            (df.index.get_level_values('case_type')==case_type)].droplevel([0,2])                                 
             plot_map(df_date,date,case_type)
     print('map plotted')
+
+##
+def plot_totals(df):
+
+    df_tot = df.groupby(['date','case_type']).sum().reset_index().pivot(index='date',columns='case_type',values='cases')
+    fig = plt.figure(figsize=(10,8))
+    plt.plot(df_tot.Confirmed,'k',linewidth=2,label='Confirmed')
+    plt.plot(df_tot.Active   ,'g',linewidth=2,label='Active'   )
+    plt.plot(df_tot.Recovered,'b',linewidth=2,label='Recovered')
+    plt.plot(df_tot.Deaths   ,'r',linewidth=2,label='Deaths'   )
+    plt.ylabel('Total Cases'); plt.legend(); plt.grid()
+    plt.savefig('plots/cases/Total_cases.png')
+    plt.close()     
+    
 ##
 def plot_cases(df,case_type,target):
                     
@@ -48,11 +64,15 @@ def plot_cases(df,case_type,target):
                   ,color=country_color,linewidth=2,label=country)
     plt.semilogy()
     plt.legend(); plt.grid(); plt.ylabel(case_type+'/100k inhabitants'); plt.xlabel('Datetime')
-    plt.savefig('plots/'+case_type+'_per_100k.png')
+    plt.savefig('plots/cases/'+case_type+'_countries_per_100k.png')
     plt.close()
         
 ##
 def plot_map(df,date,case_type):
+
+    file_name = 'plots/maps/map_'+case_type+'_'+str(date).split(' ')[0]+'.png'
+    if os.path.exists(file_name): return 
+    
     shapename = 'admin_0_countries'
     countries_shp = shpreader.natural_earth(resolution='110m',category='cultural', name=shapename)    
     fig = plt.figure(figsize=(20,10))
@@ -64,5 +84,5 @@ def plot_map(df,date,case_type):
         z = density/df.density.max()    
         color = (0.95-(0.95*z),0.95-(0.95*z),0.95-(0.95*z))
         ax.add_geometries([country.geometry], ccrs.PlateCarree(),facecolor=color,label=country.attributes['NAME_LONG'])
-    plt.savefig('plots/map_'+case_type+'_'+str(date).split(' ')[0]+'.png')
+    plt.savefig(file_name)
     plt.close()
