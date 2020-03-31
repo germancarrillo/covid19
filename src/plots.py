@@ -47,9 +47,9 @@ def plot_totals(df):
     df_tot = df.groupby(['date','case_type']).sum().reset_index().pivot(index='date',columns='case_type',values='cases')
     fig = plt.figure(figsize=(10,8))
     plt.plot(df_tot.Confirmed,'k',linewidth=2,label='Confirmed')
-    plt.plot(df_tot.Active   ,'g',linewidth=2,label='Active'   )
-    plt.plot(df_tot.Recovered,'b',linewidth=2,label='Recovered')
     plt.plot(df_tot.Deaths   ,'r',linewidth=2,label='Deaths'   )
+    #plt.plot(df_tot.Active   ,'g',linewidth=2,label='Active'   )
+    #plt.plot(df_tot.Recovered,'b',linewidth=2,label='Recovered')
     plt.ylabel('Total Cases'); plt.legend(); plt.grid()
     plt.savefig('plots/cases/Total_cases.png')
     plt.close()     
@@ -63,8 +63,12 @@ def plot_cases(df,case_type,target):
                          (df.index.get_level_values('case_type'     )==case_type) ][target].droplevel([1,2])
                   ,color=country_color,linewidth=2,label=country)
     plt.semilogy()
-    plt.legend(); plt.grid(); plt.ylabel(case_type+'/100k inhabitants'); plt.xlabel('Datetime')
-    plt.savefig('plots/cases/'+case_type+'_countries_per_100k.png')
+    if target=='density':
+        plt.legend(); plt.grid(); plt.ylabel(case_type+'/100k inhabitants'); plt.xlabel('Datetime')
+        plt.savefig('plots/cases/'+case_type+'_countries_per_100k.png')
+    else:
+        plt.legend(); plt.grid(); plt.ylabel(case_type); plt.xlabel('Datetime')
+        plt.savefig('plots/cases/'+case_type+'_countries.png')        
     plt.close()
         
 ##
