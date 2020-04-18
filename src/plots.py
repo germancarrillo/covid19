@@ -19,18 +19,22 @@ from scipy import interpolate
 
 countries = dict(Switzerland= 'r',
                  Spain      = 'y',
-                 Germany    = 'g',
-                 Italy      = 'b',
-                 China      = 'k')
+                 France     = 'b',
+                 Italy      = 'g',
+                 US         = 'k')
 ##
 def make_plots(df):
 
     os.makedirs('plots/cases/',exist_ok=True)
     plot_totals(df)
     print('total cases plotted')    
-    for case_type in df.index.get_level_values('case_type').unique(): plot_cases(df,case_type,'cases')
+    for case_type in df.index.get_level_values('case_type').unique():
+        plot_cases(df,case_type,'cases')
+        plot_cases(df,case_type,'cases,daily')
     print('country cases plotted')
-    for case_type in df.index.get_level_values('case_type').unique(): plot_cases(df,case_type,'density')
+    for case_type in df.index.get_level_values('case_type').unique():
+        plot_cases(df,case_type,'density')
+        plot_cases(df,case_type,'density,daily')
     print('country densities plotted')
     
     os.makedirs('plots/maps/',exist_ok=True) 
@@ -55,22 +59,22 @@ def plot_totals(df):
     plt.close()     
     
 ##
-def plot_cases(df,case_type,target):
-                    
+def plot_cases(df,case_type,options):
+
+    daily  = True if 'daily' in options else False
+    target = 'density'if 'density' in options else 'cases'
+    
     fig = plt.figure(figsize=(10,8))
     for country,country_color in countries.items():
-        plt.plot( df.loc[(df.index.get_level_values('country_region')==country  )&
-                         (df.index.get_level_values('case_type'     )==case_type) ][target].droplevel([1,2])
-                  ,color=country_color,linewidth=2,label=country)
-    plt.semilogy()
-    if target=='density':
-        plt.legend(); plt.grid(); plt.ylabel(case_type+'/100k inhabitants'); plt.xlabel('Datetime')
-        plt.savefig('plots/cases/'+case_type+'_countries_per_100k.png')
-    else:
-        plt.legend(); plt.grid(); plt.ylabel(case_type); plt.xlabel('Datetime')
-        plt.savefig('plots/cases/'+case_type+'_countries.png')        
-    plt.close()
-        
+        df_i = df.loc[(df.index.get_level_values('country_region')==country)&(df.index.get_level_values('case_type')==case_type) ][target].droplevel([1,2])
+        if daily: df_i = df_i - df_i.shift(1)
+        plt.plot(df_i,color=country_color,linewidth=2,label=country)        
+        if 'log' in options: plt.semilogy()
+    plt.suptitle('Daily New Cases' if daily else 'Aggregated Cases')
+    plt.legend(); plt.grid(); plt.ylabel(case_type+('/100k inhabitants' if target=='density' else '')); plt.xlabel('Datetime'); plt.tight_layout()
+    plt.savefig('plots/cases/'+case_type+'_countries'+('_per_100k' if target=='density' else '')+('_dailychange' if daily else '' )+'.png')
+    #plt.close()
+
 ##
 def plot_map(df,date,case_type):
 
