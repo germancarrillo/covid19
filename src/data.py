@@ -176,7 +176,8 @@ def query_containmentdata():
         print('data found in',save_name)
         return pd.read_pickle('data/'+save_name+'.pkl.tgz')
     else:
-        os.system('wget https://storage.googleapis.com/static-covid/Containment%20measures/countermeasures_db_johnshopkins.csv data/raw/containment/countermeasures_db_johnshopkins.csv')
+        os.system('wget https://storage.googleapis.com/static-covid/Containment%20measures/countermeasures_db_johnshopkins.csv')
+        os.system('mv countermeasures_db_johnshopkins.csv data/raw/containment/countermeasures_db_johnshopkins.csv')
         df = pd.read_csv('data/raw/containment/countermeasures_db_johnshopkins.csv',index_col='Date',parse_dates=True)
         save(df,name=save_name)
         return df
@@ -211,7 +212,7 @@ def combined_datasets(df_covid,df_airp,df_cont,country):
     
     df['containment'] = df_cont[country] 
 
-    df = df.dropna()
+    df = df.fillna(method='ffill')
     
     return df
 

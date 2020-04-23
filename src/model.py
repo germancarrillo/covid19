@@ -14,58 +14,89 @@ from scipy.optimize  import curve_fit
 from scipy.optimize  import minimize, rosen, rosen_der
 
 ##
-def plot_fit_results(df_c,sol,compartments,normalizations,country):
+def smooth(x,window_len=11,window='hanning'): 
+    if window_len<3: 
+        return x 
+    s=np.r_[2*x[0]-x[window_len-1::-1],x,2*x[-1]-x[-1:-window_len:-1]] 
+    if window == 'flat': #moving average 
+        w=np.ones(window_len,'d') 
+    else:   
+        w=eval('np.'+window+'(window_len)') 
+    y=np.convolve(w/w.sum(),s,mode='same') 
+    return y[window_len:-window_len+1] 
 
+##
+def create_scenario(scenario,parameters_i):
+
+    parameters_i['scenario'] = scenario
+    if scenario == 'persistence':        
+        return parameters_i
+    
+    if 'containtment' in scenario:
+        parameters_i['containment'][parameters_i['days']+ 1:parameters_i['days']+ 7] = 2*1./3
+        parameters_i['containment'][parameters_i['days']+ 7:parameters_i['days']+14] = 1*1./3
+        parameters_i['containment'][parameters_i['days']+14:                       ] = 0.
+
+    if 'travelban' in scenario:
+        for i in range(parameters_i['days']+ 1,parameters_i['period']+1):
+            parameters_i['flights_infected'][i] = i*(1-parameters_i['flights_infected'][parameters_i['days']])/(parameters_i['period']-parameters_i['days'])
+    
+    return parameters_i
+##
+def plot_fit_results(df,sol,country,parameters):
+    df_c,containment,flights_infected,input_vector,normalizations,days =  prepare_data(df)
     os.makedirs('plots/model/'+country+'/',exist_ok=True)    
-    state_plotter(sol.t, sol.y, 1,list(compartments.keys()),country)
-    data_plotter(df_c,sol,compartments,normalizations,country)
-        
+    data_plotter(df_c,sol,normalizations,country,parameters)
+
 ##    
-def data_plotter(df_c,sol,compartments,normalizations,country):
+def data_plotter(df_c,sol,normalizations,country,parameters):
 
     index = pd.date_range(start=df_c.index[0],periods=sol.t.size,freq='1D')
     
-    fig = plt.figure(figsize=(12,8))
-    
+    fig = plt.figure(figsize=(15,12))
+
+    fig.suptitle(parameters['scenario'])
+        
     for ix,i in enumerate(['Infected-Diagnosed','Deaths']):
-        ax = fig.add_subplot(221+ix)
-        ax.set_title(country+' - '+i)    
-        ax.plot(index[:df_c.index.size],(sol.y[compartments[i]]*normalizations[ix])[:df_c.index.size],'r',label='fitted-model')
-        ax.plot(index,sol.y[compartments[i]]*normalizations[ix],'r--',label='model-projection')
-        ax.plot(df_c['Confirmed' if ix==0 else i],'o',markersize=2, label='data')
-        ax.legend(); ax.grid(); ax.set_xlabel('Datetime'); ax.set_ylabel('Cases [%]');
+        ax0 = fig.add_subplot(331+ix)
+        ax0.set_title(country+' - '+i)    
+        ax0.plot(index[:index.size],(sol.y[sol.compartments[i]]*normalizations[ix])[:index.size],'r',label='fitted-model')
+        ax0.plot(index,sol.y[sol.compartments[i]]*normalizations[ix],'r--',label='model-projection')
+        ax0.plot(df_c['Confirmed' if ix==0 else i],'o',markersize=2, label='data')
+        ax0.set_ylim([ax0.get_ylim()[0], 0.5 if ix==0 else 0.05])
+        ax0.vlines(datetime.today(),ymin=0,ymax=ax0.get_ylim()[1],color='k',linestyle='--',label='today')
+        ax0.legend(); ax0.grid(); ax0.set_xlabel('Datetime'); ax0.set_ylabel('Cases [%]');
 
     for ix,i in enumerate(['Infected-Diagnosed','Deaths']):
-        ax = fig.add_subplot(223+ix)
+        ax = fig.add_subplot(334+ix,sharex=ax0)
         ax.set_title(country+' - '+i+', Daily Cases')        
-        ax.plot(index[1:df_c.index.size+1],(sol.y[compartments[i]]*normalizations[ix])[1:df_c.index.size+1] - (sol.y[compartments[i]]*normalizations[ix])[:df_c.index.size],'r',label='fitted-model')
-        ax.plot(index[1:],(sol.y[compartments[i]]*normalizations[ix])[1:] - (sol.y[compartments[i]]*normalizations[ix])[:-1] ,'r--',label='model-projection')
+        ax.plot(index[1:],(sol.y[sol.compartments[i]]*normalizations[ix])[1:index.size] - (sol.y[sol.compartments[i]]*normalizations[ix])[0:index.size-1],'r',label='fitted-model')
+        ax.plot(index[1:],(sol.y[sol.compartments[i]]*normalizations[ix])[1:] - (sol.y[sol.compartments[i]]*normalizations[ix])[:-1] ,'r--',label='model-projection')
         ax.plot(df_c['Confirmed' if ix==0 else i] - df_c['Confirmed' if ix==0 else i].shift(1),'o',markersize=2, label='data')
+        ax.vlines(datetime.today(),ymin=0,ymax=ax.get_ylim()[1],color='k',linestyle='--',label='today')
         ax.legend(); ax.grid(); ax.set_xlabel('Datetime'); ax.set_ylabel('Cases [%]');
 
+    for ix,i in enumerate(['containment','flights_infected']):
+        ax = fig.add_subplot(333+ix*3,sharex=ax0)
+        ax.set_title(country+' - Infection Factor: '+i.replace('_',' ').title())
+        ax.plot(index,parameters[i],'g',label=i.replace('_',' ').title())
+        ax.vlines(datetime.today(),ymin=0,ymax=ax.get_ylim()[1],color='k',linestyle='--',label='today')
+        ax.legend(); ax.grid(); ax.set_xlabel('Datetime'); ax.set_ylabel('Normalized');
+
+    for i,ix in sol.compartments.items():
+        ax = fig.add_subplot(6,3,13+ix,sharex=ax0)
+        ax.plot(index,sol.y[ix],'k',label=i.replace('_',' ').title())
+        ax.vlines(datetime.today(),ymin=0,ymax=ax.get_ylim()[1],color='k',linestyle='--')                
+        ax.legend(); ax.set_xlabel('Datetime'); ax.set_ylabel('Population [%]'); ax.set_ylim([ax.set_ylim()[0],ax.set_ylim()[1]*1.3])
+        
+    ax = fig.add_subplot(6,3,13+ix+1,sharex=ax0)
+    ax.plot(index,sol.y.sum(axis=0),'k',label='Total'.title())
+    ax.vlines(datetime.today(),ymin=0,ymax=ax.get_ylim()[1],color='k',linestyle='--')                    
+    ax.legend(); ax.set_xlabel('Datetime'); ax.set_ylabel('Population [%]');  ax.set_ylim([-1,110])
+    
     fig.autofmt_xdate()
     fig.savefig('plots/model/'+country+'/infected_diagnosed.png')
 
-
-#
-def state_plotter(times, states, fig_num,titles,country):
-    
-    num_states = np.shape(states)[0]
-    num_cols = int(np.ceil(np.sqrt(num_states)))
-    num_rows = int(np.ceil(num_states / num_cols))
-    plt.figure(fig_num)
-    plt.suptitle(country+' - Comparments Evolution')
-    plt.clf()
-    fig, ax = plt.subplots(num_rows, num_cols, num=fig_num, clear=True, squeeze=False)
-    for n in range(num_states):
-        row = n // num_cols
-        col = n % num_cols
-        ax[row][col].plot(times, states[n], 'k',linewidth=2)
-        if n==0: ax[row][col].plot(times, states.sum(axis=0),label='Tot');
-        ax[row][col].set(xlabel='Time [days]',ylabel='$y_{:0.0f}(t)$ vs. Time'.format(n),title =titles[n])        
-    for n in range(num_states, num_rows * num_cols): fig.delaxes(ax[n // num_cols][n % num_cols])    
-    fig.tight_layout()
-    plt.savefig('plots/model/'+country+'/compartments.png')
 
 # Define derivative function
 def differential_evolution(t, y, parameter):
@@ -74,39 +105,49 @@ def differential_evolution(t, y, parameter):
     
     # populations
     S,IU,ID,R,D = y[0],y[1],y[2],y[3],y[4]
-    
-    N = np.exp(S) + np.exp(IU) + np.exp(ID) + np.exp(R) + np.exp(D)
 
-    N = 100
-    
+    # total population
+    N = np.exp(S) + np.exp(IU) + np.exp(ID) + np.exp(R) + np.exp(D)
+   
     # local infection rate shall be time dependent as it is influenced by isolation -> proxy from containment measures:
-    parameter['local_infection_rate'] = parameter['beta1_p'] + (parameter['containment'][max(0,int(t-1))])*parameter['beta2_p']
+    parameter['local_infection_rate'] = parameter['beta1_p'] + (1 - parameter['containment'][int(t)])*parameter['beta2_p']
     
     # external force of infection can be modelled based on flight flux ( as a proxy to mobilty restrictions / travel ban )
-    parameter['external_force'] = parameter['flights_infected'][max(0,int(t-1))]*parameter['lambda_p'] 
+    parameter['external_force'] = parameter['lambda1_p'] + parameter['flights_infected'][int(t)]*parameter['lambda2_p']
 
     # infection rate:
-    parameter['Lambda_f'  ] = parameter['local_infection_rate']*np.exp(IU)/N + parameter['external_force']      
+    parameter['Lambda_f'] = parameter['local_infection_rate']*np.exp(IU)/N + parameter['external_force']      
 
-    # diagnosed to recovered
-    parameter['alpha_DR_p'] = 1/(1/parameter['alpha_p'] - 1/parameter['delta_p'])   
+    '''
+    Lambda Infection Rate:
+    beta1  & beta2   -> local infection rates ( beta1:base-intrinsic beta2:containment-influenced)
+    lamda1 & lambda2 -> external force of infection (lambda1:base-itrinsic lambda2:flight-prevalence-weighted-proxy)
 
-    dSdt  = (-parameter['Lambda_f'])
-    dIUdt = (+parameter['Lambda_f']*np.exp(S) - parameter['delta_p']*np.exp(IU) - parameter['alpha_p']*np.exp(IU)                                                                     )*np.exp(-IU)     
-    dIDdt = (                                 + parameter['delta_p']*np.exp(IU)                                   - parameter['alpha_DR_p']*np.exp(ID) - parameter['mu_p']*np.exp(ID) )*np.exp(-ID)      
-    dRdt  = (                                                                   + parameter['alpha_p']*np.exp(IU) + parameter['alpha_DR_p']*np.exp(ID)                                )*np.exp(-R )      
-    dDdt  = (                                                                                                                                          + parameter['mu_p']*np.exp(ID) )*np.exp(-D )      
+    Diagnosis Rate:
+    delta            -> diagnosis rate 
+    
+    Recovery Rate:
+    alpha1           -> recovery rate of undiagnosed
+    alpha2           -> recovery rate of diagnosed 
+    '''
+    
+    dSdt  = ( - parameter['Lambda_f']*np.exp(S) +                                                                                                       + parameter['gamma_p']*np.exp(R )                                  )*np.exp(-S )  
+    dIUdt = ( + parameter['Lambda_f']*np.exp(S) - parameter['delta_p']*np.exp(IU) - parameter['alpha1_p']*np.exp(IU)                                                                                                       )*np.exp(-IU)     
+    dIDdt = (                                   + parameter['delta_p']*np.exp(IU)                                    - parameter['alpha2_p']*np.exp(ID)                                     - parameter['mu_p']*np.exp(ID) )*np.exp(-ID)      
+    dRdt  = (                                                                     + parameter['alpha1_p']*np.exp(IU) + parameter['alpha2_p']*np.exp(ID) - parameter['gamma_p']*np.exp(R )                                  )*np.exp(-R )      
+    dDdt  = (                                                                                                                                                                               + parameter['mu_p']*np.exp(ID) )*np.exp(-D )      
     
     dXdt = [dSdt, dIUdt, dIDdt, dRdt, dDdt]
     
     return dXdt
 
+
 ##
 def create_model_1A(timespan,*parameter):
-    
+
     # define time spans, initial values
     tspan    = np.linspace(0, timespan, timespan+1)
-
+    
     c = ['Susceptibles','Infected-Undiagnosed','Infected-Diagnosed','Recovered','Deaths']
     compartments = dict()
     for ix,i in enumerate(c): compartments[i]=ix
@@ -123,67 +164,105 @@ def create_model_1A(timespan,*parameter):
 
     # Solve differential equation
     sol = solve_ivp(lambda t, y: differential_evolution(t, y, parameter), [tspan[0], tspan[-1]], yinit, t_eval=tspan)
-    
-    return sol,compartments
+    sol.compartments = compartments
+
+    return sol
+
+##
 
 
-def fit_model(df,country):
+def prepare_data(df):
 
     # retrieve confirmed and deaths  
     df_c = df.pivot_table(index='date',columns='case_type',values='density')
-    df_c = df_c.loc[df_c.Confirmed > 0.001]/1000
-
+    df_c = df_c.loc[df_c.Confirmed > 0.001]/1000.
+    df_c = df_c.fillna(0)
+    
     # number of days for time span fit
     days = ( df_c.index.get_level_values(0).unique()[-1] - df_c.index.get_level_values(0).unique()[0] ).days
 
-    # scenarios
-
-    period_factor = 3 
+    containment      = df.loc[df.case_type=='Deaths','containment'].loc[df_c.index].values
+    #containment     = smooth(containment,11)
+    containment      = containment/np.max(containment)
     
-    containment      = df.loc[df.case_type=='Deaths','containment'].loc[df_c.index]
-    containment      = containment.values/containment.max()
-    flights_infected = (df.loc[df.case_type=='Deaths','flights_infected']*df.loc[df.case_type=='Deaths','flights']).loc[df_c.index]
-    flights_infected = flights_infected.values/flights_infected.max()
+    flights_infected = (df.loc[df.case_type=='Deaths','flights_infected']*df.loc[df.case_type=='Deaths','flights']).loc[df_c.index].values
+    flights_infected = smooth(flights_infected,19)
+    flights_infected = flights_infected/np.max(flights_infected)
     
-    containment      = np.append( containment     , np.ones(containment     .size*(period_factor-1))*containment     [-1])   
-    flights_infected = np.append( flights_infected, np.ones(flights_infected.size*(period_factor-1))*flights_infected[-1])   
-    
-    # fixed parameters
-    fixed_parameters  = dict(alpha_p          = 1/10.,
-                             containment      = containment, 
-                             flights_infected = flights_infected )
-                             
-    # parameters to feet
-    fitted_parameters = dict(beta1_p  = 1E-06,
-                             beta2_p  = 1E-06, 
-                             delta_p  = 1E-06, 
-                             lambda_p = 1E-06,
-                             mu_p     = 1E-06)
-
-    locals().update(fitted_parameters) 
-
-    sol,compartments = create_model_1A(days*period_factor,parameters)    
-    state_plotter(sol.t, np.exp(sol.y), 1,list(compartments.keys()),country)
-    
-    # function definition
-    def func(x,beta1_p,beta2_p,delta_p,lambda_p,mu_p):
-        for i in fitted_parameters.keys(): fitted_parameters[i] = locals()[i]
-        parameters = dict(fixed_parameters,**fitted_parameters)
-        sol,compartments = create_model_1A(days,parameters)        
-        return np.exp( np.hstack([sol.y[compartments['Infected-Diagnosed']],sol.y[compartments['Deaths']]]) )
-
     normalizations =  df_c.values.max(axis=0) 
     input_vector = np.hstack(np.divide( df_c.values , normalizations).T)
     
+    return df_c,containment,flights_infected,input_vector,normalizations,days
+
+##
+def fit_model(df):
+
+    df_c,containment,flights_infected,input_vector,normalizations,days =  prepare_data(df)
+        
+    # fixed parameters
+    fixed_parameters  = dict(containment      = containment, 
+                             flights_infected = flights_infected)
+                             
+    # parameters to feet
+    fitted_parameters = dict(alpha1_p  = 0.100,
+                             alpha2_p  = 0.100,
+                             beta1_p   = 0.050,
+                             beta2_p   = 0.050,
+                             gamma_p   = 0.100,
+                             delta_p   = 0.050, 
+                             lambda1_p = 0.001,
+                             lambda2_p = 0.001,
+                             mu_p      = 0.050)
+    locals().update(fitted_parameters) 
+
+    # function definition
+    def func(x,alpha1_p,alpha2_p,beta1_p,beta2_p,gamma_p,delta_p,lambda1_p,lambda2_p,mu_p):        
+        for i in fitted_parameters.keys(): fitted_parameters[i] = locals()[i]
+        parameters = dict(fixed_parameters,**fitted_parameters)        
+        sol = create_model_1A(days,parameters)
+        return np.exp( np.hstack([sol.y[sol.compartments['Infected-Diagnosed']],sol.y[sol.compartments['Deaths']]]) )
+
+    # calibrate model
     popt, pcov = curve_fit(func,np.arange(days),input_vector,bounds=(0, np.ones(len(fitted_parameters))))
 
+    # update parameters with fitted values
     for ix,i in enumerate(fitted_parameters.keys()): fitted_parameters[i]=popt[ix]
     parameters = dict(fixed_parameters,**fitted_parameters)
 
-    sol,compartments = create_model_1A(days*period_factor,parameters)    
-
-    sol.y = np.exp(sol.y)
+    parameters['days'         ] = days
+    parameters['period'       ] = days
     
-    plot_fit_results(df_c,sol,compartments,normalizations,country)
-    
+    parameters['scenario'] = 'calibration'
+    return parameters
 
+##
+def evaluate_model(parameters):
+    
+    # evaluate model
+    sol = create_model_1A(parameters['period'],parameters)    
+
+    # back to non log equations
+    sol.y  = np.exp(sol.y)
+    
+    return sol
+
+##
+def run_model(df,country):
+
+    # fit model
+    parameters = fit_model(df)
+
+    # evaluate calibration
+    sol = evaluate_model(parameters)    
+    plot_fit_results(df,sol,country,parameters)
+    plt.show()
+    
+    # evaluate scenarios
+    parameters['period'] = parameters['days']*4  
+    for scenario in ['persistence','ease-containtment','ease-travelban','ease-containtment-and-travelban']:
+        parameters_i = create_scenario(scenario,parameters)
+        sol = evaluate_model(parameters_i)    
+        plot_fit_results(df,sol,country,parameters_i)
+        
+    plt.show()    
+    

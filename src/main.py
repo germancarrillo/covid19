@@ -42,7 +42,7 @@ if __name__== "__main__":
 
     df = data.combined_datasets(df_covid,df_airp,df_cont,country)
 
-    model.fit_model(df,country)
+    model.run_model(df,country)
     
     #plots.make_plots(df_covid)    
     #plt.close()
