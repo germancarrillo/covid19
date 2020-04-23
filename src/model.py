@@ -26,22 +26,49 @@ def smooth(x,window_len=11,window='hanning'):
     return y[window_len:-window_len+1] 
 
 ##
-def create_scenario(scenario,parameters_i):
-
+def create_scenario(scenario,parameters_i,period):
+       
+    parameters_i['period'  ] = period
     parameters_i['scenario'] = scenario
-    if scenario == 'persistence':        
+
+    def persist(p,period):
+        p = np.append( p, np.ones(period - p.size + 1)*p[-1])
+        return p
+    def steps_days(p,period):
+        p = np.append( p, np.ones(2)*p[-1]  )        
+        p = np.append( p, np.ones(7)*2*1./3 )        
+        p = np.append( p, np.ones(7)*2*1./3 )
+        p = np.append( p, np.ones(max(0,period-p.size)+1)*0.)
+        return p
+    def linear(p,period):
+        p = np.append( p, np.ones(2)*p[-1]  )                     
+        epsilon = (1-p[-1])/(period-p.size)
+        for i in range(period - p.size + 1):
+            p = np.append(p, p[-1]+epsilon)
+        return p
+    
+    if scenario == 'persistence':     
+        parameters_i['containment'     ] = persist(parameters_i['containment'     ],parameters_i['period'])
+        parameters_i['flights_infected'] = persist(parameters_i['flights_infected'],parameters_i['period'])
+        return parameters_i
+
+    if scenario == 'ease-containment':
+        parameters_i['containment'     ] = steps_days(parameters_i['containment'     ],parameters_i['period'])
+        parameters_i['flights_infected'] = persist   (parameters_i['flights_infected'],parameters_i['period'])
+        return parameters_i
+
+    if scenario == 'ease-travelban':
+        parameters_i['containment'     ] = persist(parameters_i['containment'     ],parameters_i['period'])
+        parameters_i['flights_infected'] = linear (parameters_i['flights_infected'],parameters_i['period'])
+        return parameters_i
+
+    if scenario == 'ease-containment-and-travelban': 
+        parameters_i['containment'     ] = steps_days(parameters_i['containment'     ],parameters_i['period'])
+        parameters_i['flights_infected'] = linear    (parameters_i['flights_infected'],parameters_i['period'])
         return parameters_i
     
-    if 'containtment' in scenario:
-        parameters_i['containment'][parameters_i['days']+ 1:parameters_i['days']+ 7] = 2*1./3
-        parameters_i['containment'][parameters_i['days']+ 7:parameters_i['days']+14] = 1*1./3
-        parameters_i['containment'][parameters_i['days']+14:                       ] = 0.
-
-    if 'travelban' in scenario:
-        for i in range(parameters_i['days']+ 1,parameters_i['period']+1):
-            parameters_i['flights_infected'][i] = i*(1-parameters_i['flights_infected'][parameters_i['days']])/(parameters_i['period']-parameters_i['days'])
-    
     return parameters_i
+
 ##
 def plot_fit_results(df,sol,country,parameters):
     df_c,containment,flights_infected,input_vector,normalizations,days =  prepare_data(df)
@@ -258,9 +285,9 @@ def run_model(df,country):
     plt.show()
     
     # evaluate scenarios
-    parameters['period'] = parameters['days']*4  
-    for scenario in ['persistence','ease-containtment','ease-travelban','ease-containtment-and-travelban']:
-        parameters_i = create_scenario(scenario,parameters)
+    for scenario in ['persistence','ease-containment','ease-travelban','ease-containment-and-travelban']:
+        period = parameters['days']*4
+        parameters_i = create_scenario(scenario,parameters.copy(),period)
         sol = evaluate_model(parameters_i)    
         plot_fit_results(df,sol,country,parameters_i)
         
