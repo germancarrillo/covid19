@@ -71,25 +71,28 @@ def create_scenario(scenario,parameters_i,period):
 
 ##
 def plot_fit_results(df,sol,country,parameters):
-    df_c,containment,flights_infected,input_vector,normalizations,days =  prepare_data(df)
+    df_c,containment,flights_infected,input_vector,weigths,days =  prepare_data(df)
     os.makedirs('plots/model/'+country+'/',exist_ok=True)    
-    data_plotter(df_c,sol,normalizations,country,parameters)
+    data_plotter(df_c,sol,country,parameters)
 
 ##    
-def data_plotter(df_c,sol,normalizations,country,parameters):
+def data_plotter(df_c,sol,country,parameters):
 
     index = pd.date_range(start=df_c.index[0],periods=sol.t.size,freq='1D')
     
     fig = plt.figure(figsize=(15,12))
 
     fig.suptitle(parameters['scenario'])
-        
+
+    normalize_input_vector = sol.y[sol.compartments['Deaths']].max()/df_c.Deaths.max()
+    df_n = df_c*normalize_input_vector
+    
     for ix,i in enumerate(['Infected-Diagnosed','Deaths']):
         ax0 = fig.add_subplot(331+ix)
         ax0.set_title(country+' - '+i)    
-        ax0.plot(index[:index.size],(sol.y[sol.compartments[i]]*normalizations[ix])[:index.size],'r',label='fitted-model')
-        ax0.plot(index,sol.y[sol.compartments[i]]*normalizations[ix],'r--',label='model-projection')
-        ax0.plot(df_c['Confirmed' if ix==0 else i],'o',markersize=2, label='data')
+        ax0.plot(index[:index.size],(sol.y[sol.compartments[i]])[:index.size],'r',label='fitted-model')
+        ax0.plot(index,sol.y[sol.compartments[i]],'r--',label='model-projection')
+        ax0.plot(df_n['Confirmed' if ix==0 else i],'o',markersize=2, label='data')
         ax0.set_ylim([ax0.get_ylim()[0], 0.5 if ix==0 else 0.05])
         ax0.vlines(datetime.today(),ymin=0,ymax=ax0.get_ylim()[1],color='k',linestyle='--',label='today')
         ax0.legend(); ax0.grid(); ax0.set_xlabel('Datetime'); ax0.set_ylabel('Cases [%]');
@@ -97,9 +100,9 @@ def data_plotter(df_c,sol,normalizations,country,parameters):
     for ix,i in enumerate(['Infected-Diagnosed','Deaths']):
         ax = fig.add_subplot(334+ix,sharex=ax0)
         ax.set_title(country+' - '+i+', Daily Cases')        
-        ax.plot(index[1:],(sol.y[sol.compartments[i]]*normalizations[ix])[1:index.size] - (sol.y[sol.compartments[i]]*normalizations[ix])[0:index.size-1],'r',label='fitted-model')
-        ax.plot(index[1:],(sol.y[sol.compartments[i]]*normalizations[ix])[1:] - (sol.y[sol.compartments[i]]*normalizations[ix])[:-1] ,'r--',label='model-projection')
-        ax.plot(df_c['Confirmed' if ix==0 else i] - df_c['Confirmed' if ix==0 else i].shift(1),'o',markersize=2, label='data')
+        ax.plot(index[1:],(sol.y[sol.compartments[i]])[1:index.size] - (sol.y[sol.compartments[i]])[0:index.size-1],'r',label='fitted-model')
+        ax.plot(index[1:],(sol.y[sol.compartments[i]])[1:] - (sol.y[sol.compartments[i]])[:-1] ,'r--',label='model-projection')
+        ax.plot(df_n['Confirmed' if ix==0 else i] - df_n['Confirmed' if ix==0 else i].shift(1),'o',markersize=2, label='data')
         ax.vlines(datetime.today(),ymin=0,ymax=ax.get_ylim()[1],color='k',linestyle='--',label='today')
         ax.legend(); ax.grid(); ax.set_xlabel('Datetime'); ax.set_ylabel('Cases [%]');
 
@@ -196,8 +199,6 @@ def create_model_1A(timespan,*parameter):
     return sol
 
 ##
-
-
 def prepare_data(df):
 
     # retrieve confirmed and deaths  
@@ -216,15 +217,20 @@ def prepare_data(df):
     flights_infected = smooth(flights_infected,19)
     flights_infected = flights_infected/np.max(flights_infected)
     
-    normalizations =  df_c.values.max(axis=0) 
-    input_vector = np.hstack(np.divide( df_c.values , normalizations).T)
+    normalizations = df_c.values.max(axis=0) 
+    input_vector   = np.hstack(np.divide( df_c.values , normalizations).T)
     
-    return df_c,containment,flights_infected,input_vector,normalizations,days
+    linear_weights = np.arange(0,input_vector.size)/(input_vector.size-1)
+    input_vector   = input_vector * linear_weights 
+
+    weights = (linear_weights,normalizations)
+    
+    return df_c,containment,flights_infected,input_vector,weights,days
 
 ##
 def fit_model(df):
 
-    df_c,containment,flights_infected,input_vector,normalizations,days =  prepare_data(df)
+    df_c,containment,flights_infected,input_vector,weights,days =  prepare_data(df)
         
     # fixed parameters
     fixed_parameters  = dict(containment      = containment, 
@@ -246,8 +252,17 @@ def fit_model(df):
     def func(x,alpha1_p,alpha2_p,beta1_p,beta2_p,gamma_p,delta_p,lambda1_p,lambda2_p,mu_p):        
         for i in fitted_parameters.keys(): fitted_parameters[i] = locals()[i]
         parameters = dict(fixed_parameters,**fitted_parameters)        
-        sol = create_model_1A(days,parameters)
-        return np.exp( np.hstack([sol.y[sol.compartments['Infected-Diagnosed']],sol.y[sol.compartments['Deaths']]]) )
+        sol = create_model_1A(days,parameters)        
+
+        ID = np.exp( sol.y[sol.compartments['Infected-Diagnosed']] )
+        D  = np.exp( sol.y[sol.compartments['Deaths']] )
+        
+        ID = ID/ID.max()
+        D  = D /D.max()
+        
+        model_vector = np.hstack([ID,D])
+        model_vector = model_vector*weights[0]
+        return model_vector
 
     # calibrate model
     popt, pcov = curve_fit(func,np.arange(days),input_vector,bounds=(0, np.ones(len(fitted_parameters))))
@@ -256,10 +271,13 @@ def fit_model(df):
     for ix,i in enumerate(fitted_parameters.keys()): fitted_parameters[i]=popt[ix]
     parameters = dict(fixed_parameters,**fitted_parameters)
 
-    parameters['days'         ] = days
-    parameters['period'       ] = days
+    parameters['weights'] = weights
+    
+    parameters['days'  ] = days
+    parameters['period'] = days
     
     parameters['scenario'] = 'calibration'
+
     return parameters
 
 ##
@@ -269,7 +287,7 @@ def evaluate_model(parameters):
     sol = create_model_1A(parameters['period'],parameters)    
 
     # back to non log equations
-    sol.y  = np.exp(sol.y)
+    sol.y = np.exp(sol.y)
     
     return sol
 
